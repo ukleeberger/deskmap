@@ -445,9 +445,93 @@ class MainWindow(QMainWindow):
         self._status_lbl.setText(text)
 
 
-# ── Entry point ─────────────────────────────────────────────────────────────
+# ── Headless mode ───────────────────────────────────────────────────────────
+
+def run_headless() -> int:
+    if not CONFIG_PATH.exists():
+        print(f"Keine gespeicherte Konfiguration gefunden: {CONFIG_PATH}", file=sys.stderr)
+        return 1
+
+    try:
+        data = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as e:
+        print(f"Konfiguration konnte nicht gelesen werden: {e}", file=sys.stderr)
+        return 1
+
+    desktops = get_desktops()
+    if not desktops:
+        print("KWin-Desktops konnten nicht abgerufen werden. Läuft KDE Plasma?", file=sys.stderr)
+        return 1
+
+    app_by_id = {a["id"]: a for a in _parse_desktop_files()}
+    desktop_uuids = {d["uuid"] for d in desktops}
+    uuid_to_name = {d["uuid"]: d["name"] for d in desktops}
+
+    assignments: list[dict] = []
+    for entry in data:
+        app = app_by_id.get(entry.get("app_id", ""))
+        uuid = entry.get("desktop_uuid", "")
+        if not app:
+            print(f"Warnung: App '{entry.get('app_id')}' nicht gefunden, wird übersprungen.")
+            continue
+        if uuid not in desktop_uuids:
+            print(f"Warnung: Desktop-UUID für '{app['name']}' nicht mehr gültig, wird übersprungen.")
+            continue
+        assignments.append({"app": app, "desktop_uuid": uuid})
+
+    if not assignments:
+        print("Keine gültigen Zuordnungen in der Konfiguration.", file=sys.stderr)
+        return 1
+
+    try:
+        original_uuid = _get_current_uuid()
+    except Exception:
+        original_uuid = None
+
+    by_desktop: dict[str, list] = {}
+    for a in assignments:
+        by_desktop.setdefault(a["desktop_uuid"], []).append(a["app"])
+
+    try:
+        for uuid, apps in by_desktop.items():
+            print(f"Wechsle zu '{uuid_to_name.get(uuid, uuid)}' ...")
+            _switch_desktop(uuid)
+            time.sleep(0.3)
+            for app in apps:
+                print(f"  Starte '{app['name']}' ...")
+                subprocess.Popen(app["exec"].split(), start_new_session=True)
+                time.sleep(0.2)
+
+        if original_uuid:
+            time.sleep(0.5)
+            _switch_desktop(original_uuid)
+            print("Zurueck zum Ausgangs-Desktop.")
+    except Exception as e:
+        print(f"Fehler beim Starten: {e}", file=sys.stderr)
+        return 1
+
+    print("Fertig.")
+    return 0
+
+
+# ── Entry point ───────────────────────────────────────────────────────────────
 
 def main():
+    import argparse
+    parser = argparse.ArgumentParser(
+        prog="wsp-init",
+        description="Startet Anwendungen auf vordefinierten KDE-Workspaces.",
+    )
+    parser.add_argument(
+        "--headless", "-H",
+        action="store_true",
+        help="Gespeicherte Konfiguration direkt starten, ohne GUI.",
+    )
+    args, remaining = parser.parse_known_args()
+
+    if args.headless:
+        sys.exit(run_headless())
+
     app = QApplication(sys.argv)
     app.setApplicationName("wsp-init")
     app.setOrganizationName("wsp-init")
