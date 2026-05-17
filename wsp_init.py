@@ -16,8 +16,8 @@ from PyQt6.QtWidgets import (
     QComboBox, QSplitter, QFrame, QMessageBox, QScrollArea,
     QGridLayout, QSizePolicy, QAbstractItemView,
 )
-from PyQt6.QtCore import Qt, QSize, QThread, pyqtSignal, QTimer
-from PyQt6.QtGui import QIcon, QFont, QColor
+from PyQt6.QtCore import Qt, QSize, QThread, pyqtSignal, QTimer, QMimeData, QEvent, QPoint
+from PyQt6.QtGui import QIcon, QFont, QColor, QDrag
 
 
 CONFIG_PATH = Path.home() / ".config" / "wsp-init" / "assignments.json"
@@ -109,6 +109,84 @@ def _switch_desktop(uuid: str) -> None:
     )
 
 
+# ── KWin scripting helpers ──────────────────────────────────────────────────
+
+_KWIN_SCRIPT_NAME = "wsp-init-launcher"
+_KWIN_SCRIPT_PATH = "/tmp/wsp-init-kwin.js"
+
+# KWin JS: fires on every new window, moves it to the configured desktop.
+# __RULES__ is replaced with a JSON object: {identifier: desktop_uuid}
+_KWIN_SCRIPT_TPL = """\
+(function() {
+    var rules = __RULES__;
+    workspace.windowAdded.connect(function(w) {
+        var fn = (w.desktopFileName || '').toLowerCase();
+        var rc = (w.resourceClass  || '').toString().toLowerCase();
+        var key = rules.hasOwnProperty(fn) ? fn
+                : rules.hasOwnProperty(rc) ? rc
+                : null;
+        if (!key) return;
+        var uuid = rules[key];
+        var all  = workspace.desktops;
+        for (var i = 0; i < all.length; i++) {
+            if (all[i].id === uuid) { w.desktops = [all[i]]; break; }
+        }
+    });
+})();
+"""
+
+
+def _build_kwin_rules(assignments: list[dict]) -> dict[str, str]:
+    """Map every identifier we know for an app to its target desktop UUID."""
+    rules: dict[str, str] = {}
+    for a in assignments:
+        app, uuid = a["app"], a["desktop_uuid"]
+        rules[app["id"].lower()] = uuid
+        exec_bin = app["exec"].split()[0].split("/")[-1].lower()
+        if exec_bin:
+            rules.setdefault(exec_bin, uuid)
+    return rules
+
+
+def _kwin_load_script(rules: dict) -> bool:
+    content = _KWIN_SCRIPT_TPL.replace("__RULES__", json.dumps(rules))
+    try:
+        Path(_KWIN_SCRIPT_PATH).write_text(content, encoding="utf-8")
+        bus = dbus.SessionBus()
+        iface = dbus.Interface(
+            bus.get_object("org.kde.KWin", "/Scripting"),
+            "org.kde.kwin.Scripting",
+        )
+        try:
+            iface.unloadScript(_KWIN_SCRIPT_NAME)
+        except dbus.DBusException:
+            pass
+        # Force two-argument overload via explicit dbus signature
+        iface.loadScript(_KWIN_SCRIPT_PATH, _KWIN_SCRIPT_NAME,
+                         signature=dbus.Signature("ss"))
+        iface.start()
+        return True
+    except Exception as e:
+        print(f"KWin-Skript Fehler: {e}", file=sys.stderr)
+        return False
+
+
+def _kwin_unload_script() -> None:
+    try:
+        bus = dbus.SessionBus()
+        iface = dbus.Interface(
+            bus.get_object("org.kde.KWin", "/Scripting"),
+            "org.kde.kwin.Scripting",
+        )
+        iface.unloadScript(_KWIN_SCRIPT_NAME)
+    except Exception:
+        pass
+    try:
+        Path(_KWIN_SCRIPT_PATH).unlink(missing_ok=True)
+    except Exception:
+        pass
+
+
 # ── Launch thread ───────────────────────────────────────────────────────────
 
 class LaunchThread(QThread):
@@ -123,37 +201,21 @@ class LaunchThread(QThread):
         self._desktops = desktops
 
     def run(self):
-        try:
-            original_uuid = _get_current_uuid()
-        except Exception:
-            original_uuid = None
-
-        # group by desktop uuid
-        by_desktop: dict[str, list] = {}
-        for a in self._assignments:
-            by_desktop.setdefault(a["desktop_uuid"], []).append(a["app"])
-
-        uuid_to_name = {d["uuid"]: d["name"] for d in self._desktops}
+        rules = _build_kwin_rules(self._assignments)
+        if not _kwin_load_script(rules):
+            self.finished.emit(False, "KWin-Skript konnte nicht geladen werden.")
+            return
 
         try:
-            for uuid, apps in by_desktop.items():
-                name = uuid_to_name.get(uuid, uuid)
-                self.progress.emit(f"Wechsle zu „{name}“ ...")
-                _switch_desktop(uuid)
-                time.sleep(0.3)
-                for app in apps:
-                    self.progress.emit(f"Starte „{app['name']}“ ...")
-                    exec_parts = app["exec"].split()
-                    subprocess.Popen(exec_parts, start_new_session=True)
-                    time.sleep(0.2)
-
-            if original_uuid:
-                time.sleep(0.5)
-                _switch_desktop(original_uuid)
-                self.progress.emit("Zurück zum Ausgangs-Desktop.")
-
-            self.finished.emit(True, "Alle Anwendungen wurden gestartet.")
+            for a in self._assignments:
+                app = a["app"]
+                self.progress.emit(f"Starte '{app['name']}' ...")
+                subprocess.Popen(app["exec"].split(), start_new_session=True,
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                time.sleep(0.15)
+            self.finished.emit(True, "Gestartet — Workspace-Regeln aktiv (20 s).")
         except Exception as e:
+            _kwin_unload_script()
             self.finished.emit(False, f"Fehler: {e}")
 
 
@@ -167,10 +229,19 @@ class AssignmentRow(QWidget):
         super().__init__()
         self.app = app
         self._desktops = desktops
+        self._drag_start: QPoint | None = None
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(4, 2, 4, 2)
         layout.setSpacing(8)
+
+        self._drag_handle = QLabel("⠿")
+        self._drag_handle.setFixedWidth(18)
+        self._drag_handle.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._drag_handle.setCursor(Qt.CursorShape.OpenHandCursor)
+        self._drag_handle.setToolTip("Zum Verschieben ziehen")
+        self._drag_handle.setStyleSheet("color: #888; font-size: 14px;")
+        layout.addWidget(self._drag_handle)
 
         icon_lbl = QLabel()
         icon = QIcon.fromTheme(app["icon"], QIcon.fromTheme("application-x-executable"))
@@ -198,6 +269,32 @@ class AssignmentRow(QWidget):
         btn_remove.setToolTip("Entfernen")
         btn_remove.clicked.connect(lambda: self.remove_requested.emit(self))
         layout.addWidget(btn_remove)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            handle_rect = self._drag_handle.geometry()
+            if handle_rect.contains(event.pos()):
+                self._drag_start = event.pos()
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        self._drag_start = None
+        super().mouseReleaseEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if (self._drag_start is not None
+                and event.buttons() & Qt.MouseButton.LeftButton
+                and (event.pos() - self._drag_start).manhattanLength() >= 6):
+            self._drag_start = None
+            drag = QDrag(self)
+            mime = QMimeData()
+            mime.setText(str(id(self)))
+            drag.setMimeData(mime)
+            pixmap = self.grab()
+            drag.setPixmap(pixmap)
+            drag.setHotSpot(event.pos())
+            drag.exec(Qt.DropAction.MoveAction)
+        super().mouseMoveEvent(event)
 
     def selected_uuid(self) -> str:
         return self.combo.currentData()
@@ -291,6 +388,8 @@ class MainWindow(QMainWindow):
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
         self._assignments_widget = QWidget()
+        self._assignments_widget.setAcceptDrops(True)
+        self._assignments_widget.installEventFilter(self)
         self._assignments_layout = QVBoxLayout(self._assignments_widget)
         self._assignments_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         self._assignments_layout.setSpacing(2)
@@ -317,6 +416,53 @@ class MainWindow(QMainWindow):
         self._launch_btn.clicked.connect(self._launch_all)
         bottom.addWidget(self._launch_btn)
         root.addLayout(bottom)
+
+    # ── Drag-and-drop reordering ─────────────────────────────────────────────
+
+    def eventFilter(self, obj, event):
+        if obj is self._assignments_widget:
+            t = event.type()
+            if t == QEvent.Type.DragEnter:
+                if event.mimeData().hasText():
+                    event.acceptProposedAction()
+                return True
+            if t == QEvent.Type.DragMove:
+                event.acceptProposedAction()
+                return True
+            if t == QEvent.Type.Drop:
+                self._handle_drop(event)
+                return True
+        return super().eventFilter(obj, event)
+
+    def _handle_drop(self, event):
+        try:
+            source_id = int(event.mimeData().text())
+        except ValueError:
+            return
+        from_row = next((r for r in self._assignment_rows if id(r) == source_id), None)
+        if from_row is None:
+            return
+        from_idx = self._assignment_rows.index(from_row)
+
+        drop_y = int(event.position().y())
+        to_idx = len(self._assignment_rows)
+        for i, row in enumerate(self._assignment_rows):
+            if drop_y < row.y() + row.height() // 2:
+                to_idx = i
+                break
+
+        self._reorder_row(from_idx, to_idx)
+        event.acceptProposedAction()
+
+    def _reorder_row(self, from_idx: int, to_idx: int):
+        if from_idx == to_idx:
+            return
+        row = self._assignment_rows.pop(from_idx)
+        self._assignments_layout.removeWidget(row)
+        adjusted = to_idx - 1 if to_idx > from_idx else to_idx
+        self._assignment_rows.insert(adjusted, row)
+        self._assignments_layout.insertWidget(adjusted, row)
+        self._save_config()
 
     # ── Data loading ────────────────────────────────────────────────────────
 
@@ -411,7 +557,9 @@ class MainWindow(QMainWindow):
     def _on_launch_finished(self, success: bool, message: str):
         self._launch_btn.setEnabled(True)
         self._set_status(message)
-        if not success:
+        if success:
+            QTimer.singleShot(20_000, _kwin_unload_script)
+        else:
             QMessageBox.critical(self, "Fehler beim Starten", message)
 
     # ── Config persistence ───────────────────────────────────────────────────
@@ -433,11 +581,28 @@ class MainWindow(QMainWindow):
             return
         app_by_id = {a["id"]: a for a in self._all_apps}
         desktop_uuids = {d["uuid"] for d in self._desktops}
+        fallback_uuid = self._desktops[-1]["uuid"] if self._desktops else None
+        remapped: list[str] = []
         for entry in data:
             app = app_by_id.get(entry.get("app_id"))
             uuid = entry.get("desktop_uuid")
-            if app and uuid in desktop_uuids:
-                self._add_row(app, uuid)
+            if not app:
+                continue
+            if uuid not in desktop_uuids:
+                if fallback_uuid is None:
+                    continue
+                remapped.append(app["name"])
+                uuid = fallback_uuid
+            self._add_row(app, uuid)
+        if remapped:
+            names = "\n".join(f"  • {n}" for n in remapped)
+            QMessageBox.information(
+                self,
+                "Workspace nicht mehr vorhanden",
+                f"Folgende Anwendungen wurden auf den letzten verfügbaren "
+                f"Workspace umgeleitet:\n\n{names}\n\n"
+                f"Bitte die Zuordnung prüfen und ggf. anpassen.",
+            )
 
     # ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -483,33 +648,26 @@ def run_headless() -> int:
         print("Keine gültigen Zuordnungen in der Konfiguration.", file=sys.stderr)
         return 1
 
-    try:
-        original_uuid = _get_current_uuid()
-    except Exception:
-        original_uuid = None
-
-    by_desktop: dict[str, list] = {}
-    for a in assignments:
-        by_desktop.setdefault(a["desktop_uuid"], []).append(a["app"])
-
-    try:
-        for uuid, apps in by_desktop.items():
-            print(f"Wechsle zu '{uuid_to_name.get(uuid, uuid)}' ...")
-            _switch_desktop(uuid)
-            time.sleep(0.3)
-            for app in apps:
-                print(f"  Starte '{app['name']}' ...")
-                subprocess.Popen(app["exec"].split(), start_new_session=True)
-                time.sleep(0.2)
-
-        if original_uuid:
-            time.sleep(0.5)
-            _switch_desktop(original_uuid)
-            print("Zurueck zum Ausgangs-Desktop.")
-    except Exception as e:
-        print(f"Fehler beim Starten: {e}", file=sys.stderr)
+    rules = _build_kwin_rules(assignments)
+    if not _kwin_load_script(rules):
+        print("KWin-Skript konnte nicht geladen werden.", file=sys.stderr)
         return 1
 
+    try:
+        for a in assignments:
+            app = a["app"]
+            print(f"Starte '{app['name']}' ...")
+            subprocess.Popen(app["exec"].split(), start_new_session=True,
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            time.sleep(0.15)
+    except Exception as e:
+        print(f"Fehler beim Starten: {e}", file=sys.stderr)
+        _kwin_unload_script()
+        return 1
+
+    print("Gestartet. Warte 20 s auf Fenster ...")
+    time.sleep(20)
+    _kwin_unload_script()
     print("Fertig.")
     return 0
 
