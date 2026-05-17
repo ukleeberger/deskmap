@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Workspace Starter
+Comment=Startet Anwendungen auf konfigurierten KDE-Workspaces
+Exec=/home/uli/git/wsp-init/wsp-init.sh
+Icon=preferences-desktop-display
+Terminal=false
+Categories=Utility;
