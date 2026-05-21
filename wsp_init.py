@@ -139,6 +139,7 @@ _KWIN_SCRIPT_PATH = "/tmp/wsp-init-kwin.js"
 _KWIN_SCRIPT_TPL = """\
 (function() {
     var rules = __RULES__;
+    var placed = {};
     workspace.windowAdded.connect(function(w) {
         var fn = (w.desktopFileName || '').toLowerCase();
         var rc = (w.resourceClass  || '').toString().toLowerCase();
@@ -146,7 +147,11 @@ _KWIN_SCRIPT_TPL = """\
                 : rules.hasOwnProperty(rc) ? rc
                 : null;
         if (!key) return;
-        var uuid = rules[key];
+        var uuids = rules[key];
+        var idx = placed[key] || 0;
+        if (idx >= uuids.length) return;
+        placed[key] = idx + 1;
+        var uuid = uuids[idx];
         var all  = workspace.desktops;
         for (var i = 0; i < all.length; i++) {
             if (all[i].id === uuid) { w.desktops = [all[i]]; break; }
@@ -156,15 +161,16 @@ _KWIN_SCRIPT_TPL = """\
 """
 
 
-def _build_kwin_rules(assignments: list[dict]) -> dict[str, str]:
-    """Map every identifier we know for an app to its target desktop UUID."""
-    rules: dict[str, str] = {}
+def _build_kwin_rules(assignments: list[dict]) -> dict[str, list[str]]:
+    """Map every identifier we know for an app to its ordered list of target desktop UUIDs."""
+    rules: dict[str, list[str]] = {}
     for a in assignments:
         app, uuid = a["app"], a["desktop_uuid"]
-        rules[app["id"].lower()] = uuid
+        app_key = app["id"].lower()
+        rules.setdefault(app_key, []).append(uuid)
         exec_bin = app["exec"].split()[0].split("/")[-1].lower()
-        if exec_bin:
-            rules.setdefault(exec_bin, uuid)
+        if exec_bin and exec_bin != app_key:
+            rules.setdefault(exec_bin, []).append(uuid)
     return rules
 
 
@@ -549,13 +555,9 @@ class MainWindow(QMainWindow):
         selected_items = self._app_list.selectedItems()
         if not selected_items:
             return
-        existing_ids = {row.app["id"] for row in self._assignment_rows}
         for item in selected_items:
             app = item.data(Qt.ItemDataRole.UserRole)
-            if app["id"] in existing_ids:
-                continue
             self._add_row(app)
-            existing_ids.add(app["id"])
 
     def _add_row(self, app: dict, desktop_uuid: str | None = None):
         if not self._desktops:
