@@ -14,17 +14,37 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QListWidget, QListWidgetItem, QLabel, QLineEdit,
     QComboBox, QSplitter, QFrame, QMessageBox, QScrollArea,
-    QGridLayout, QSizePolicy, QAbstractItemView,
+    QGridLayout, QSizePolicy, QAbstractItemView, QInputDialog, QMenu,
 )
 from PyQt6.QtCore import Qt, QSize, QThread, pyqtSignal, QTimer, QMimeData, QEvent, QPoint
 from PyQt6.QtGui import QIcon, QFont, QColor, QDrag
 
 
-CONFIG_PATH = Path.home() / ".config" / "wsp-init" / "assignments.json"
+OLD_CONFIG_PATH = Path.home() / ".config" / "wsp-init" / "assignments.json"
+CONFIG_PATH     = Path.home() / ".config" / "wsp-init" / "config.json"
+DEFAULT_PROFILE = "default"
 APP_DIRS = [
     Path("/usr/share/applications"),
     Path.home() / ".local/share/applications",
 ]
+
+
+def _migrate_if_needed() -> None:
+    """Migrate old assignments.json to new multi-profile config.json (silent, one-time)."""
+    if CONFIG_PATH.exists():
+        return
+    if not OLD_CONFIG_PATH.exists():
+        return
+    try:
+        old_data = json.loads(OLD_CONFIG_PATH.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return
+    new_data = {
+        "active_profile": DEFAULT_PROFILE,
+        "profiles": {DEFAULT_PROFILE: old_data},
+    }
+    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    CONFIG_PATH.write_text(json.dumps(new_data, indent=2), encoding="utf-8")
 
 
 # ── Desktop file parsing ────────────────────────────────────────────────────
@@ -323,6 +343,9 @@ class MainWindow(QMainWindow):
         self._desktops: list[dict] = []
         self._assignment_rows: list[AssignmentRow] = []
         self._launch_thread: LaunchThread | None = None
+        self._profiles: dict[str, list] = {DEFAULT_PROFILE: []}
+        self._active_profile: str = DEFAULT_PROFILE
+        self._loading: bool = False
 
         self._build_ui()
         self._load_apps()
@@ -344,6 +367,28 @@ class MainWindow(QMainWindow):
         title.setFont(QFont("", 13))
         top.addWidget(title)
         top.addStretch()
+
+        top.addWidget(QLabel("Profil:"))
+
+        self._profile_combo = QComboBox()
+        self._profile_combo.setMinimumWidth(130)
+        self._profile_combo.addItem(DEFAULT_PROFILE)
+        self._profile_combo.currentIndexChanged.connect(self._on_profile_changed)
+        top.addWidget(self._profile_combo)
+
+        btn_new_profile = QPushButton("Neu")
+        btn_new_profile.setFixedWidth(44)
+        btn_new_profile.setToolTip("Neues Profil erstellen")
+        btn_new_profile.clicked.connect(self._create_profile)
+        top.addWidget(btn_new_profile)
+
+        self._btn_manage_profile = QPushButton("…")
+        self._btn_manage_profile.setFixedWidth(30)
+        self._btn_manage_profile.setToolTip("Profil umbenennen oder löschen")
+        self._btn_manage_profile.clicked.connect(self._manage_profile)
+        top.addWidget(self._btn_manage_profile)
+
+        top.addSpacing(8)
 
         self._desktop_count_lbl = QLabel()
         top.addWidget(self._desktop_count_lbl)
@@ -565,25 +610,52 @@ class MainWindow(QMainWindow):
     # ── Config persistence ───────────────────────────────────────────────────
 
     def _save_config(self):
+        if self._loading:
+            return
         CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-        data = [
+        self._profiles[self._active_profile] = [
             {"app_id": row.app["id"], "desktop_uuid": row.selected_uuid()}
             for row in self._assignment_rows
         ]
+        data = {"active_profile": self._active_profile, "profiles": self._profiles}
         CONFIG_PATH.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
     def _load_config(self):
-        if not CONFIG_PATH.exists():
-            return
-        try:
-            data = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            return
+        _migrate_if_needed()
+        self._profiles = {DEFAULT_PROFILE: []}
+        self._active_profile = DEFAULT_PROFILE
+
+        if CONFIG_PATH.exists():
+            try:
+                raw = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+                self._profiles = raw.get("profiles", {DEFAULT_PROFILE: []})
+                if DEFAULT_PROFILE not in self._profiles:
+                    self._profiles[DEFAULT_PROFILE] = []
+                saved_active = raw.get("active_profile", DEFAULT_PROFILE)
+                if saved_active in self._profiles:
+                    self._active_profile = saved_active
+            except (json.JSONDecodeError, OSError):
+                pass
+
+        self._refresh_profile_combo()
+        self._loading = True
+        self._apply_profile(self._profiles[self._active_profile])
+        self._loading = False
+        self._save_config()
+
+    def _apply_profile(self, profile_data: list[dict]):
+        """Clear the assignment panel and populate it from profile_data."""
+        for row in list(self._assignment_rows):
+            self._assignments_layout.removeWidget(row)
+            row.deleteLater()
+        self._assignment_rows.clear()
+
         app_by_id = {a["id"]: a for a in self._all_apps}
         desktop_uuids = {d["uuid"] for d in self._desktops}
         fallback_uuid = self._desktops[-1]["uuid"] if self._desktops else None
         remapped: list[str] = []
-        for entry in data:
+
+        for entry in profile_data:
             app = app_by_id.get(entry.get("app_id"))
             uuid = entry.get("desktop_uuid")
             if not app:
@@ -594,6 +666,7 @@ class MainWindow(QMainWindow):
                 remapped.append(app["name"])
                 uuid = fallback_uuid
             self._add_row(app, uuid)
+
         if remapped:
             names = "\n".join(f"  • {n}" for n in remapped)
             QMessageBox.information(
@@ -604,6 +677,95 @@ class MainWindow(QMainWindow):
                 f"Bitte die Zuordnung prüfen und ggf. anpassen.",
             )
 
+    # ── Profile management ───────────────────────────────────────────────────
+
+    def _refresh_profile_combo(self):
+        self._profile_combo.blockSignals(True)
+        self._profile_combo.clear()
+        names = [DEFAULT_PROFILE] + sorted(
+            n for n in self._profiles if n != DEFAULT_PROFILE
+        )
+        for name in names:
+            self._profile_combo.addItem(name)
+        idx = self._profile_combo.findText(self._active_profile)
+        if idx >= 0:
+            self._profile_combo.setCurrentIndex(idx)
+        self._profile_combo.blockSignals(False)
+
+    def _on_profile_changed(self, index: int):
+        name = self._profile_combo.currentText()
+        if not name or name == self._active_profile:
+            return
+        self._profiles[self._active_profile] = [
+            {"app_id": row.app["id"], "desktop_uuid": row.selected_uuid()}
+            for row in self._assignment_rows
+        ]
+        self._active_profile = name
+        self._loading = True
+        self._apply_profile(self._profiles[self._active_profile])
+        self._loading = False
+        self._save_config()
+
+    def _create_profile(self):
+        name, ok = QInputDialog.getText(self, "Neues Profil", "Profilname:")
+        name = name.strip()
+        if not ok or not name:
+            return
+        if name in self._profiles:
+            QMessageBox.warning(self, "Fehler", f"Profil '{name}' existiert bereits.")
+            return
+        self._profiles[self._active_profile] = [
+            {"app_id": row.app["id"], "desktop_uuid": row.selected_uuid()}
+            for row in self._assignment_rows
+        ]
+        self._profiles[name] = []
+        self._active_profile = name
+        self._refresh_profile_combo()
+        self._loading = True
+        self._apply_profile([])
+        self._loading = False
+        self._save_config()
+
+    def _manage_profile(self):
+        menu = QMenu(self)
+        act_rename = menu.addAction("Umbenennen …")
+        act_delete = menu.addAction("Löschen")
+        if self._active_profile == DEFAULT_PROFILE:
+            act_rename.setEnabled(False)
+            act_delete.setEnabled(False)
+        action = menu.exec(self._btn_manage_profile.mapToGlobal(
+            self._btn_manage_profile.rect().bottomLeft()
+        ))
+        if action == act_rename:
+            name, ok = QInputDialog.getText(
+                self, "Profil umbenennen", "Neuer Name:", text=self._active_profile
+            )
+            name = name.strip()
+            if not ok or not name or name == self._active_profile:
+                return
+            if name in self._profiles:
+                QMessageBox.warning(self, "Fehler", f"'{name}' existiert bereits.")
+                return
+            self._profiles[name] = self._profiles.pop(self._active_profile)
+            self._active_profile = name
+            self._refresh_profile_combo()
+            self._save_config()
+        elif action == act_delete:
+            reply = QMessageBox.question(
+                self, "Profil löschen",
+                f"Profil '{self._active_profile}' wirklich löschen?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+            del self._profiles[self._active_profile]
+            self._active_profile = DEFAULT_PROFILE
+            self._refresh_profile_combo()
+            self._loading = True
+            self._apply_profile(self._profiles[DEFAULT_PROFILE])
+            self._loading = False
+            self._save_config()
+
     # ── Helpers ──────────────────────────────────────────────────────────────
 
     def _set_status(self, text: str):
@@ -612,16 +774,36 @@ class MainWindow(QMainWindow):
 
 # ── Headless mode ───────────────────────────────────────────────────────────
 
-def run_headless() -> int:
+def run_headless(profile_name: str | None = None) -> int:
+    _migrate_if_needed()
+
     if not CONFIG_PATH.exists():
         print(f"Keine gespeicherte Konfiguration gefunden: {CONFIG_PATH}", file=sys.stderr)
         return 1
 
     try:
-        data = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+        raw = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError) as e:
         print(f"Konfiguration konnte nicht gelesen werden: {e}", file=sys.stderr)
         return 1
+
+    profiles = raw.get("profiles", {})
+    if not profiles:
+        print("Keine Profile in der Konfiguration.", file=sys.stderr)
+        return 1
+
+    if profile_name is None:
+        profile_name = raw.get("active_profile", DEFAULT_PROFILE)
+    if profile_name not in profiles:
+        available = ", ".join(sorted(profiles.keys()))
+        print(
+            f"Profil '{profile_name}' nicht gefunden. Verfügbar: {available}",
+            file=sys.stderr,
+        )
+        return 1
+
+    data = profiles[profile_name]
+    print(f"Verwende Profil: {profile_name}")
 
     desktops = get_desktops()
     if not desktops:
@@ -630,7 +812,6 @@ def run_headless() -> int:
 
     app_by_id = {a["id"]: a for a in _parse_desktop_files()}
     desktop_uuids = {d["uuid"] for d in desktops}
-    uuid_to_name = {d["uuid"]: d["name"] for d in desktops}
 
     assignments: list[dict] = []
     for entry in data:
@@ -685,10 +866,15 @@ def main():
         action="store_true",
         help="Gespeicherte Konfiguration direkt starten, ohne GUI.",
     )
+    parser.add_argument(
+        "--profile", "-p",
+        default=None,
+        help="Profil verwenden (Standard: zuletzt aktives Profil aus config.json).",
+    )
     args, remaining = parser.parse_known_args()
 
     if args.headless:
-        sys.exit(run_headless())
+        sys.exit(run_headless(args.profile))
 
     app = QApplication(sys.argv)
     app.setApplicationName("wsp-init")
