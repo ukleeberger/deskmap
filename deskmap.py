@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""KDE Workspace Starter — assign installed apps to virtual desktops and launch them."""
+"""Deskmap — assign installed apps to virtual desktops and launch them."""
 
 import sys
 import os
@@ -20,8 +20,8 @@ from PyQt6.QtCore import Qt, QSize, QThread, pyqtSignal, QTimer, QMimeData, QEve
 from PyQt6.QtGui import QIcon, QFont, QColor, QDrag
 
 
-OLD_CONFIG_PATH = Path.home() / ".config" / "wsp-init" / "assignments.json"
-CONFIG_PATH     = Path.home() / ".config" / "wsp-init" / "config.json"
+OLD_CONFIG_PATH = Path.home() / ".config" / "deskmap" / "assignments.json"
+CONFIG_PATH     = Path.home() / ".config" / "deskmap" / "config.json"
 DEFAULT_PROFILE = "default"
 APP_DIRS = [
     Path("/usr/share/applications"),
@@ -131,8 +131,8 @@ def _switch_desktop(uuid: str) -> None:
 
 # ── KWin scripting helpers ──────────────────────────────────────────────────
 
-_KWIN_SCRIPT_NAME = "wsp-init-launcher"
-_KWIN_SCRIPT_PATH = "/tmp/wsp-init-kwin.js"
+_KWIN_SCRIPT_NAME = "deskmap-launcher"
+_KWIN_SCRIPT_PATH = "/tmp/deskmap-kwin.js"
 
 # KWin JS: fires on every new window, moves it to the configured desktop.
 # __RULES__ is replaced with a JSON object: {identifier: desktop_uuid}
@@ -342,7 +342,7 @@ class AssignmentRow(QWidget):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Workspace Starter")
+        self.setWindowTitle("Deskmap")
         self.setMinimumSize(900, 580)
 
         self._all_apps: list[dict] = []
@@ -369,7 +369,7 @@ class MainWindow(QMainWindow):
 
         # ── Top bar
         top = QHBoxLayout()
-        title = QLabel("<b>Workspace Starter</b>")
+        title = QLabel("<b>Deskmap</b>")
         title.setFont(QFont("", 13))
         top.addWidget(title)
         top.addStretch()
@@ -860,7 +860,7 @@ def run_headless(profile_name: str | None = None) -> int:
 def main():
     import argparse
     parser = argparse.ArgumentParser(
-        prog="wsp-init",
+        prog="deskmap",
         description="Startet Anwendungen auf vordefinierten KDE-Workspaces.",
     )
     parser.add_argument(
@@ -879,8 +879,9 @@ def main():
         sys.exit(run_headless(args.profile))
 
     app = QApplication(sys.argv)
-    app.setApplicationName("wsp-init")
-    app.setOrganizationName("wsp-init")
+    app.setApplicationName("deskmap")
+    app.setOrganizationName("deskmap")
+    app.setWindowIcon(QIcon.fromTheme("preferences-desktop-display"))
     win = MainWindow()
     win.show()
     sys.exit(app.exec())
