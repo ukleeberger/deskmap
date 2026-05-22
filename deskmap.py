@@ -3,6 +3,7 @@
 
 import sys
 import os
+import gettext
 import json
 import subprocess
 import time
@@ -27,6 +28,16 @@ APP_DIRS = [
     Path("/usr/share/applications"),
     Path.home() / ".local/share/applications",
 ]
+
+_LOCALE_DIR = Path(__file__).resolve().parent / "locales"
+
+try:
+    _lang = gettext.translation("deskmap", localedir=_LOCALE_DIR)
+except FileNotFoundError:
+    _lang = gettext.NullTranslations()
+
+_ = _lang.gettext
+ngettext = _lang.ngettext
 
 
 def _migrate_if_needed() -> None:
@@ -193,7 +204,7 @@ def _kwin_load_script(rules: dict) -> bool:
         iface.start()
         return True
     except Exception as e:
-        print(f"KWin-Skript Fehler: {e}", file=sys.stderr)
+        print(f"KWin script error: {e}", file=sys.stderr)
         return False
 
 
@@ -229,20 +240,20 @@ class LaunchThread(QThread):
     def run(self):
         rules = _build_kwin_rules(self._assignments)
         if not _kwin_load_script(rules):
-            self.finished.emit(False, "KWin-Skript konnte nicht geladen werden.")
+            self.finished.emit(False, _("Could not load KWin script."))
             return
 
         try:
             for a in self._assignments:
                 app = a["app"]
-                self.progress.emit(f"Starte '{app['name']}' ...")
+                self.progress.emit(_("Launching '{name}' ...").format(name=app["name"]))
                 subprocess.Popen(app["exec"].split(), start_new_session=True,
                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 time.sleep(0.15)
-            self.finished.emit(True, "Gestartet — Workspace-Regeln aktiv (20 s).")
+            self.finished.emit(True, _("Launched — workspace rules active (20 s)."))
         except Exception as e:
             _kwin_unload_script()
-            self.finished.emit(False, f"Fehler: {e}")
+            self.finished.emit(False, _("Error: {e}").format(e=e))
 
 
 # ── Assignment row widget ───────────────────────────────────────────────────
@@ -265,7 +276,7 @@ class AssignmentRow(QWidget):
         self._drag_handle.setFixedWidth(18)
         self._drag_handle.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._drag_handle.setCursor(Qt.CursorShape.OpenHandCursor)
-        self._drag_handle.setToolTip("Zum Verschieben ziehen")
+        self._drag_handle.setToolTip(_("Drag to reorder"))
         self._drag_handle.setStyleSheet("color: #888; font-size: 14px;")
         layout.addWidget(self._drag_handle)
 
@@ -292,7 +303,7 @@ class AssignmentRow(QWidget):
 
         btn_remove = QPushButton("✕")
         btn_remove.setFixedSize(28, 28)
-        btn_remove.setToolTip("Entfernen")
+        btn_remove.setToolTip(_("Remove"))
         btn_remove.clicked.connect(lambda: self.remove_requested.emit(self))
         layout.addWidget(btn_remove)
 
@@ -374,7 +385,7 @@ class MainWindow(QMainWindow):
         top.addWidget(title)
         top.addStretch()
 
-        top.addWidget(QLabel("Profil:"))
+        top.addWidget(QLabel(_("Profile:")))
 
         self._profile_combo = QComboBox()
         self._profile_combo.setMinimumWidth(130)
@@ -382,15 +393,15 @@ class MainWindow(QMainWindow):
         self._profile_combo.currentIndexChanged.connect(self._on_profile_changed)
         top.addWidget(self._profile_combo)
 
-        btn_new_profile = QPushButton("Neu")
+        btn_new_profile = QPushButton(_("New"))
         btn_new_profile.setFixedWidth(44)
-        btn_new_profile.setToolTip("Neues Profil erstellen")
+        btn_new_profile.setToolTip(_("Create new profile"))
         btn_new_profile.clicked.connect(self._create_profile)
         top.addWidget(btn_new_profile)
 
         self._btn_manage_profile = QPushButton("…")
         self._btn_manage_profile.setFixedWidth(30)
-        self._btn_manage_profile.setToolTip("Profil umbenennen oder löschen")
+        self._btn_manage_profile.setToolTip(_("Rename or delete profile"))
         self._btn_manage_profile.clicked.connect(self._manage_profile)
         top.addWidget(self._btn_manage_profile)
 
@@ -399,7 +410,7 @@ class MainWindow(QMainWindow):
         self._desktop_count_lbl = QLabel()
         top.addWidget(self._desktop_count_lbl)
 
-        btn_refresh = QPushButton("Aktualisieren")
+        btn_refresh = QPushButton(_("Refresh"))
         btn_refresh.clicked.connect(self._load_desktops)
         top.addWidget(btn_refresh)
         root.addLayout(top)
@@ -411,10 +422,10 @@ class MainWindow(QMainWindow):
         left = QWidget()
         left_layout = QVBoxLayout(left)
         left_layout.setContentsMargins(0, 0, 0, 0)
-        left_layout.addWidget(QLabel("Installierte Anwendungen"))
+        left_layout.addWidget(QLabel(_("Installed Applications")))
 
         self._search = QLineEdit()
-        self._search.setPlaceholderText("Suchen ...")
+        self._search.setPlaceholderText(_("Search..."))
         self._search.textChanged.connect(self._filter_apps)
         left_layout.addWidget(self._search)
 
@@ -424,7 +435,7 @@ class MainWindow(QMainWindow):
         self._app_list.itemDoubleClicked.connect(self._add_selected)
         left_layout.addWidget(self._app_list)
 
-        btn_add = QPushButton("Hinzufügen →")
+        btn_add = QPushButton(_("Add →"))
         btn_add.clicked.connect(self._add_selected)
         left_layout.addWidget(btn_add)
 
@@ -434,7 +445,7 @@ class MainWindow(QMainWindow):
         right = QWidget()
         right_layout = QVBoxLayout(right)
         right_layout.setContentsMargins(0, 0, 0, 0)
-        right_layout.addWidget(QLabel("Zuordnung: Anwendung → Workspace"))
+        right_layout.addWidget(QLabel(_("Assignment: App → Workspace")))
 
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
@@ -447,7 +458,7 @@ class MainWindow(QMainWindow):
         scroll_area.setWidget(self._assignments_widget)
         right_layout.addWidget(scroll_area)
 
-        btn_clear = QPushButton("Alle entfernen")
+        btn_clear = QPushButton(_("Remove all"))
         btn_clear.clicked.connect(self._clear_assignments)
         right_layout.addWidget(btn_clear)
 
@@ -461,7 +472,7 @@ class MainWindow(QMainWindow):
         self._status_lbl.setStyleSheet("color: gray;")
         bottom.addWidget(self._status_lbl, stretch=1)
 
-        self._launch_btn = QPushButton("Alle starten")
+        self._launch_btn = QPushButton(_("Launch all"))
         self._launch_btn.setFixedHeight(36)
         self._launch_btn.setStyleSheet("font-weight: bold; font-size: 13px;")
         self._launch_btn.clicked.connect(self._launch_all)
@@ -520,7 +531,10 @@ class MainWindow(QMainWindow):
     def _load_apps(self):
         self._all_apps = _parse_desktop_files()
         self._populate_app_list(self._all_apps)
-        self._set_status(f"{len(self._all_apps)} Anwendungen gefunden.")
+        n = len(self._all_apps)
+        self._set_status(
+            ngettext("{n} application found.", "{n} applications found.", n).format(n=n)
+        )
 
     def _populate_app_list(self, apps: list[dict]):
         self._app_list.clear()
@@ -539,14 +553,15 @@ class MainWindow(QMainWindow):
     def _load_desktops(self):
         self._desktops = get_desktops()
         count = len(self._desktops)
-        self._desktop_count_lbl.setText(f"{count} Workspace{'s' if count != 1 else ''} erkannt")
+        self._desktop_count_lbl.setText(
+            ngettext("{count} workspace detected", "{count} workspaces detected", count).format(count=count)
+        )
         for row in self._assignment_rows:
             row.update_desktops(self._desktops)
         if not self._desktops:
             QMessageBox.warning(
-                self, "KWin nicht erreichbar",
-                "Die virtuellen Desktops konnten nicht abgerufen werden.\n"
-                "Läuft KDE Plasma?",
+                self, _("KWin Unreachable"),
+                _("Could not retrieve virtual desktops.\nIs KDE Plasma running?"),
             )
 
     # ── Assignment management ────────────────────────────────────────────────
@@ -583,10 +598,10 @@ class MainWindow(QMainWindow):
 
     def _launch_all(self):
         if not self._assignment_rows:
-            QMessageBox.information(self, "Keine Zuordnung", "Bitte zuerst Anwendungen zuordnen.")
+            QMessageBox.information(self, _("No Assignment"), _("Please assign applications first."))
             return
         if not self._desktops:
-            QMessageBox.warning(self, "Keine Workspaces", "Workspaces konnten nicht ermittelt werden.")
+            QMessageBox.warning(self, _("No Workspaces"), _("Could not determine workspaces."))
             return
 
         assignments = [
@@ -607,7 +622,7 @@ class MainWindow(QMainWindow):
         if success:
             QTimer.singleShot(20_000, _kwin_unload_script)
         else:
-            QMessageBox.critical(self, "Fehler beim Starten", message)
+            QMessageBox.critical(self, _("Launch Error"), message)
 
     # ── Config persistence ───────────────────────────────────────────────────
 
@@ -673,10 +688,9 @@ class MainWindow(QMainWindow):
             names = "\n".join(f"  • {n}" for n in remapped)
             QMessageBox.information(
                 self,
-                "Workspace nicht mehr vorhanden",
-                f"Folgende Anwendungen wurden auf den letzten verfügbaren "
-                f"Workspace umgeleitet:\n\n{names}\n\n"
-                f"Bitte die Zuordnung prüfen und ggf. anpassen.",
+                _("Workspace No Longer Available"),
+                _("The following applications were redirected to the last available workspace:"
+                  "\n\n{names}\n\nPlease review and adjust the assignments.").format(names=names),
             )
 
     # ── Profile management ───────────────────────────────────────────────────
@@ -709,12 +723,12 @@ class MainWindow(QMainWindow):
         self._save_config()
 
     def _create_profile(self):
-        name, ok = QInputDialog.getText(self, "Neues Profil", "Profilname:")
+        name, ok = QInputDialog.getText(self, _("New Profile"), _("Profile name:"))
         name = name.strip()
         if not ok or not name:
             return
         if name in self._profiles:
-            QMessageBox.warning(self, "Fehler", f"Profil '{name}' existiert bereits.")
+            QMessageBox.warning(self, _("Error"), _("Profile '{name}' already exists.").format(name=name))
             return
         self._profiles[self._active_profile] = [
             {"app_id": row.app["id"], "desktop_uuid": row.selected_uuid()}
@@ -730,8 +744,8 @@ class MainWindow(QMainWindow):
 
     def _manage_profile(self):
         menu = QMenu(self)
-        act_rename = menu.addAction("Umbenennen …")
-        act_delete = menu.addAction("Löschen")
+        act_rename = menu.addAction(_("Rename…"))
+        act_delete = menu.addAction(_("Delete"))
         if self._active_profile == DEFAULT_PROFILE:
             act_rename.setEnabled(False)
             act_delete.setEnabled(False)
@@ -740,13 +754,13 @@ class MainWindow(QMainWindow):
         ))
         if action == act_rename:
             name, ok = QInputDialog.getText(
-                self, "Profil umbenennen", "Neuer Name:", text=self._active_profile
+                self, _("Rename Profile"), _("New name:"), text=self._active_profile
             )
             name = name.strip()
             if not ok or not name or name == self._active_profile:
                 return
             if name in self._profiles:
-                QMessageBox.warning(self, "Fehler", f"'{name}' existiert bereits.")
+                QMessageBox.warning(self, _("Error"), _("'{name}' already exists.").format(name=name))
                 return
             self._profiles[name] = self._profiles.pop(self._active_profile)
             self._active_profile = name
@@ -754,8 +768,8 @@ class MainWindow(QMainWindow):
             self._save_config()
         elif action == act_delete:
             reply = QMessageBox.question(
-                self, "Profil löschen",
-                f"Profil '{self._active_profile}' wirklich löschen?",
+                self, _("Delete Profile"),
+                _("Really delete profile '{name}'?").format(name=self._active_profile),
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             )
             if reply != QMessageBox.StandardButton.Yes:
@@ -780,18 +794,18 @@ def run_headless(profile_name: str | None = None) -> int:
     _migrate_if_needed()
 
     if not CONFIG_PATH.exists():
-        print(f"Keine gespeicherte Konfiguration gefunden: {CONFIG_PATH}", file=sys.stderr)
+        print(_("No saved configuration found: {path}").format(path=CONFIG_PATH), file=sys.stderr)
         return 1
 
     try:
         raw = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError) as e:
-        print(f"Konfiguration konnte nicht gelesen werden: {e}", file=sys.stderr)
+        print(_("Could not read configuration: {e}").format(e=e), file=sys.stderr)
         return 1
 
     profiles = raw.get("profiles", {})
     if not profiles:
-        print("Keine Profile in der Konfiguration.", file=sys.stderr)
+        print(_("No profiles in configuration."), file=sys.stderr)
         return 1
 
     if profile_name is None:
@@ -799,17 +813,19 @@ def run_headless(profile_name: str | None = None) -> int:
     if profile_name not in profiles:
         available = ", ".join(sorted(profiles.keys()))
         print(
-            f"Profil '{profile_name}' nicht gefunden. Verfügbar: {available}",
+            _("Profile '{name}' not found. Available: {available}").format(
+                name=profile_name, available=available
+            ),
             file=sys.stderr,
         )
         return 1
 
     data = profiles[profile_name]
-    print(f"Verwende Profil: {profile_name}")
+    print(_("Using profile: {name}").format(name=profile_name))
 
     desktops = get_desktops()
     if not desktops:
-        print("KWin-Desktops konnten nicht abgerufen werden. Läuft KDE Plasma?", file=sys.stderr)
+        print(_("Could not retrieve KWin desktops. Is KDE Plasma running?"), file=sys.stderr)
         return 1
 
     app_by_id = {a["id"]: a for a in _parse_desktop_files()}
@@ -820,38 +836,38 @@ def run_headless(profile_name: str | None = None) -> int:
         app = app_by_id.get(entry.get("app_id", ""))
         uuid = entry.get("desktop_uuid", "")
         if not app:
-            print(f"Warnung: App '{entry.get('app_id')}' nicht gefunden, wird übersprungen.")
+            print(_("Warning: App '{app_id}' not found, skipping.").format(app_id=entry.get("app_id")))
             continue
         if uuid not in desktop_uuids:
-            print(f"Warnung: Desktop-UUID für '{app['name']}' nicht mehr gültig, wird übersprungen.")
+            print(_("Warning: Desktop UUID for '{name}' is no longer valid, skipping.").format(name=app["name"]))
             continue
         assignments.append({"app": app, "desktop_uuid": uuid})
 
     if not assignments:
-        print("Keine gültigen Zuordnungen in der Konfiguration.", file=sys.stderr)
+        print(_("No valid assignments in configuration."), file=sys.stderr)
         return 1
 
     rules = _build_kwin_rules(assignments)
     if not _kwin_load_script(rules):
-        print("KWin-Skript konnte nicht geladen werden.", file=sys.stderr)
+        print(_("Could not load KWin script."), file=sys.stderr)
         return 1
 
     try:
         for a in assignments:
             app = a["app"]
-            print(f"Starte '{app['name']}' ...")
+            print(_("Launching '{name}' ...").format(name=app["name"]))
             subprocess.Popen(app["exec"].split(), start_new_session=True,
                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             time.sleep(0.15)
     except Exception as e:
-        print(f"Fehler beim Starten: {e}", file=sys.stderr)
+        print(_("Launch error: {e}").format(e=e), file=sys.stderr)
         _kwin_unload_script()
         return 1
 
-    print("Gestartet. Warte 20 s auf Fenster ...")
+    print(_("Launched. Waiting 20 s for windows..."))
     time.sleep(20)
     _kwin_unload_script()
-    print("Fertig.")
+    print(_("Done."))
     return 0
 
 
@@ -861,17 +877,17 @@ def main():
     import argparse
     parser = argparse.ArgumentParser(
         prog="deskmap",
-        description="Startet Anwendungen auf vordefinierten KDE-Workspaces.",
+        description=_("Launch applications on predefined KDE workspaces."),
     )
     parser.add_argument(
         "--headless", "-H",
         action="store_true",
-        help="Gespeicherte Konfiguration direkt starten, ohne GUI.",
+        help=_("Launch saved configuration directly without GUI."),
     )
     parser.add_argument(
         "--profile", "-p",
         default=None,
-        help="Profil verwenden (Standard: zuletzt aktives Profil aus config.json).",
+        help=_("Use profile (default: last active profile from config.json)."),
     )
     args, remaining = parser.parse_known_args()
 

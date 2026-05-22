@@ -1,0 +1,173 @@
+# German translation for Deskmap
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Language: de\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+msgid "Drag to reorder"
+msgstr "Zum Verschieben ziehen"
+
+msgid "Remove"
+msgstr "Entfernen"
+
+msgid "Profile:"
+msgstr "Profil:"
+
+msgid "New"
+msgstr "Neu"
+
+msgid "Create new profile"
+msgstr "Neues Profil erstellen"
+
+msgid "Rename or delete profile"
+msgstr "Profil umbenennen oder löschen"
+
+msgid "Refresh"
+msgstr "Aktualisieren"
+
+msgid "Installed Applications"
+msgstr "Installierte Anwendungen"
+
+msgid "Search..."
+msgstr "Suchen ..."
+
+msgid "Add →"
+msgstr "Hinzufügen →"
+
+msgid "Assignment: App → Workspace"
+msgstr "Zuordnung: Anwendung → Workspace"
+
+msgid "Remove all"
+msgstr "Alle entfernen"
+
+msgid "Launch all"
+msgstr "Alle starten"
+
+msgid "{count} workspace detected"
+msgid_plural "{count} workspaces detected"
+msgstr[0] "{count} Workspace erkannt"
+msgstr[1] "{count} Workspaces erkannt"
+
+msgid "{n} application found."
+msgid_plural "{n} applications found."
+msgstr[0] "{n} Anwendung gefunden."
+msgstr[1] "{n} Anwendungen gefunden."
+
+msgid "KWin Unreachable"
+msgstr "KWin nicht erreichbar"
+
+msgid "Could not retrieve virtual desktops.\nIs KDE Plasma running?"
+msgstr "Die virtuellen Desktops konnten nicht abgerufen werden.\nLäuft KDE Plasma?"
+
+msgid "No Assignment"
+msgstr "Keine Zuordnung"
+
+msgid "Please assign applications first."
+msgstr "Bitte zuerst Anwendungen zuordnen."
+
+msgid "No Workspaces"
+msgstr "Keine Workspaces"
+
+msgid "Could not determine workspaces."
+msgstr "Workspaces konnten nicht ermittelt werden."
+
+msgid "Launch Error"
+msgstr "Fehler beim Starten"
+
+msgid "Workspace No Longer Available"
+msgstr "Workspace nicht mehr vorhanden"
+
+msgid "The following applications were redirected to the last available workspace:\n\n{names}\n\nPlease review and adjust the assignments."
+msgstr "Folgende Anwendungen wurden auf den letzten verfügbaren Workspace umgeleitet:\n\n{names}\n\nBitte die Zuordnung prüfen und ggf. anpassen."
+
+msgid "Rename…"
+msgstr "Umbenennen …"
+
+msgid "Delete"
+msgstr "Löschen"
+
+msgid "New Profile"
+msgstr "Neues Profil"
+
+msgid "Profile name:"
+msgstr "Profilname:"
+
+msgid "Error"
+msgstr "Fehler"
+
+msgid "Profile '{name}' already exists."
+msgstr "Profil '{name}' existiert bereits."
+
+msgid "Rename Profile"
+msgstr "Profil umbenennen"
+
+msgid "New name:"
+msgstr "Neuer Name:"
+
+msgid "'{name}' already exists."
+msgstr "'{name}' existiert bereits."
+
+msgid "Delete Profile"
+msgstr "Profil löschen"
+
+msgid "Really delete profile '{name}'?"
+msgstr "Profil '{name}' wirklich löschen?"
+
+msgid "Could not load KWin script."
+msgstr "KWin-Skript konnte nicht geladen werden."
+
+msgid "Launching '{name}' ..."
+msgstr "Starte '{name}' ..."
+
+msgid "Launched — workspace rules active (20 s)."
+msgstr "Gestartet — Workspace-Regeln aktiv (20 s)."
+
+msgid "Error: {e}"
+msgstr "Fehler: {e}"
+
+msgid "No saved configuration found: {path}"
+msgstr "Keine gespeicherte Konfiguration gefunden: {path}"
+
+msgid "Could not read configuration: {e}"
+msgstr "Konfiguration konnte nicht gelesen werden: {e}"
+
+msgid "No profiles in configuration."
+msgstr "Keine Profile in der Konfiguration."
+
+msgid "Profile '{name}' not found. Available: {available}"
+msgstr "Profil '{name}' nicht gefunden. Verfügbar: {available}"
+
+msgid "Using profile: {name}"
+msgstr "Verwende Profil: {name}"
+
+msgid "Could not retrieve KWin desktops. Is KDE Plasma running?"
+msgstr "KWin-Desktops konnten nicht abgerufen werden. Läuft KDE Plasma?"
+
+msgid "Warning: App '{app_id}' not found, skipping."
+msgstr "Warnung: App '{app_id}' nicht gefunden, wird übersprungen."
+
+msgid "Warning: Desktop UUID for '{name}' is no longer valid, skipping."
+msgstr "Warnung: Desktop-UUID für '{name}' nicht mehr gültig, wird übersprungen."
+
+msgid "No valid assignments in configuration."
+msgstr "Keine gültigen Zuordnungen in der Konfiguration."
+
+msgid "Launched. Waiting 20 s for windows..."
+msgstr "Gestartet. Warte 20 s auf Fenster ..."
+
+msgid "Done."
+msgstr "Fertig."
+
+msgid "Launch applications on predefined KDE workspaces."
+msgstr "Startet Anwendungen auf vordefinierten KDE-Workspaces."
+
+msgid "Launch saved configuration directly without GUI."
+msgstr "Gespeicherte Konfiguration direkt starten, ohne GUI."
+
+msgid "Use profile (default: last active profile from config.json)."
+msgstr "Profil verwenden (Standard: zuletzt aktives Profil aus config.json)."
+
+msgid "Launch error: {e}"
+msgstr "Fehler beim Starten: {e}"
