@@ -46,6 +46,18 @@ deskmap --headless
 deskmap --headless --profile work
 ```
 
+## Window Tiling
+
+When the **Tile windows** checkbox is enabled (default: on), Deskmap automatically arranges windows in a grid on each workspace after launching:
+
+- Windows are distributed evenly in a grid (columns × rows calculated from `ceil(√n)`)
+- Each window gets an equal share of the available screen area
+- The last row is spread across the remaining space if the grid is uneven
+- Tiling is handled by a temporary KWin script that is unloaded 20 seconds after launch
+- Disable tiling to let KWin or another window manager handle placement
+
+The tiling setting is saved per profile in `config.json`.
+
 ## Configuration
 
 Stored at `~/.config/deskmap/config.json`.
