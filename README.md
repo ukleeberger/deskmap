@@ -6,8 +6,10 @@ Assigns installed apps to KDE virtual desktops and launches them there at the pr
 
 - Assign apps to virtual desktops via drag & drop
 - The same app can be assigned to multiple desktops
+- Tile windows evenly when multiple apps share a workspace (toggleable)
 - Profiles: save and switch between named configurations
 - Headless mode: launch a saved configuration directly without the GUI
+- Internationalization (i18n) support via gettext (German included)
 - Uses KWin scripting via DBus — no patches, no KWin plugins required
 
 ## Requirements
