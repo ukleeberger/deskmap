@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import (
     QPushButton, QListWidget, QListWidgetItem, QLabel, QLineEdit,
     QComboBox, QSplitter, QFrame, QMessageBox, QScrollArea,
     QGridLayout, QSizePolicy, QAbstractItemView, QInputDialog, QMenu,
+    QCheckBox,
 )
 from PyQt6.QtCore import Qt, QSize, QThread, pyqtSignal, QTimer, QMimeData, QEvent, QPoint
 from PyQt6.QtGui import QIcon, QFont, QColor, QDrag
@@ -273,16 +274,15 @@ class LaunchThread(QThread):
     progress = pyqtSignal(str)
     finished = pyqtSignal(bool, str)
 
-    def __init__(self, assignments: list[dict], desktops: list[dict]):
+    def __init__(self, assignments: list[dict], desktops: list[dict], *, tiling: bool = True):
         super().__init__()
-        # assignments: [{app, desktop_uuid}, …]
-        # desktops: [{index, uuid, name}, …]
         self._assignments = assignments
         self._desktops = desktops
+        self._tiling = tiling
 
     def run(self):
         rules  = _build_kwin_rules(self._assignments)
-        counts = _build_kwin_counts(self._assignments)
+        counts = _build_kwin_counts(self._assignments) if self._tiling else {}
         if not _kwin_load_script(rules, counts):
             self.finished.emit(False, _("Could not load KWin script."))
             return
@@ -407,6 +407,7 @@ class MainWindow(QMainWindow):
         self._profiles: dict[str, list] = {DEFAULT_PROFILE: []}
         self._active_profile: str = DEFAULT_PROFILE
         self._loading: bool = False
+        self._tiling_enabled: bool = True
 
         self._build_ui()
         self._load_apps()
@@ -515,6 +516,14 @@ class MainWindow(QMainWindow):
         self._status_lbl = QLabel("")
         self._status_lbl.setStyleSheet("color: gray;")
         bottom.addWidget(self._status_lbl, stretch=1)
+
+        self._tiling_chk = QCheckBox(_("Tile windows"))
+        self._tiling_chk.setChecked(True)
+        self._tiling_chk.setToolTip(
+            _("Distribute windows evenly on each workspace like a tiling manager")
+        )
+        self._tiling_chk.toggled.connect(self._on_tiling_toggled)
+        bottom.addWidget(self._tiling_chk)
 
         self._launch_btn = QPushButton(_("Launch all"))
         self._launch_btn.setFixedHeight(36)
@@ -655,7 +664,9 @@ class MainWindow(QMainWindow):
 
         self._launch_btn.setEnabled(False)
 
-        self._launch_thread = LaunchThread(assignments, self._desktops)
+        self._launch_thread = LaunchThread(
+            assignments, self._desktops, tiling=self._tiling_enabled
+        )
         self._launch_thread.progress.connect(self._set_status)
         self._launch_thread.finished.connect(self._on_launch_finished)
         self._launch_thread.start()
@@ -670,6 +681,10 @@ class MainWindow(QMainWindow):
 
     # ── Config persistence ───────────────────────────────────────────────────
 
+    def _on_tiling_toggled(self, checked: bool):
+        self._tiling_enabled = checked
+        self._save_config()
+
     def _save_config(self):
         if self._loading:
             return
@@ -678,7 +693,11 @@ class MainWindow(QMainWindow):
             {"app_id": row.app["id"], "desktop_uuid": row.selected_uuid()}
             for row in self._assignment_rows
         ]
-        data = {"active_profile": self._active_profile, "profiles": self._profiles}
+        data = {
+            "active_profile": self._active_profile,
+            "tiling": self._tiling_enabled,
+            "profiles": self._profiles,
+        }
         CONFIG_PATH.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
     def _load_config(self):
@@ -695,9 +714,11 @@ class MainWindow(QMainWindow):
                 saved_active = raw.get("active_profile", DEFAULT_PROFILE)
                 if saved_active in self._profiles:
                     self._active_profile = saved_active
+                self._tiling_enabled = bool(raw.get("tiling", True))
             except (json.JSONDecodeError, OSError):
                 pass
 
+        self._tiling_chk.setChecked(self._tiling_enabled)
         self._refresh_profile_combo()
         self._loading = True
         self._apply_profile(self._profiles[self._active_profile])
@@ -865,6 +886,7 @@ def run_headless(profile_name: str | None = None) -> int:
         return 1
 
     data = profiles[profile_name]
+    tiling_enabled = bool(raw.get("tiling", True))
     print(_("Using profile: {name}").format(name=profile_name))
 
     desktops = get_desktops()
@@ -892,7 +914,7 @@ def run_headless(profile_name: str | None = None) -> int:
         return 1
 
     rules  = _build_kwin_rules(assignments)
-    counts = _build_kwin_counts(assignments)
+    counts = _build_kwin_counts(assignments) if tiling_enabled else {}
     if not _kwin_load_script(rules, counts):
         print(_("Could not load KWin script."), file=sys.stderr)
         return 1
