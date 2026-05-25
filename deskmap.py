@@ -145,28 +145,58 @@ def _switch_desktop(uuid: str) -> None:
 _KWIN_SCRIPT_NAME = "deskmap-launcher"
 _KWIN_SCRIPT_PATH = "/tmp/deskmap-kwin.js"
 
-# KWin JS: fires on every new window, moves it to the configured desktop.
-# __RULES__ is replaced with a JSON object: {identifier: desktop_uuid}
+# KWin JS: fires on every new window, moves it to the configured desktop and
+# tiles it when multiple apps share the same workspace.
+# __RULES__ → {identifier: [desktop_uuid, …]}
+# __COUNTS__ → {desktop_uuid: total_window_count}
 _KWIN_SCRIPT_TPL = """\
 (function() {
-    var rules = __RULES__;
-    var placed = {};
+    var rules  = __RULES__;
+    var counts = __COUNTS__;
+    var placed          = {};
+    var placedOnDesktop = {};
     workspace.windowAdded.connect(function(w) {
-        var fn = (w.desktopFileName || '').toLowerCase();
-        var rc = (w.resourceClass  || '').toString().toLowerCase();
+        var fn  = (w.desktopFileName || '').toLowerCase();
+        var rc  = (w.resourceClass   || '').toString().toLowerCase();
         var key = rules.hasOwnProperty(fn) ? fn
                 : rules.hasOwnProperty(rc) ? rc
                 : null;
         if (!key) return;
         var uuids = rules[key];
-        var idx = placed[key] || 0;
+        var idx   = placed[key] || 0;
         if (idx >= uuids.length) return;
         placed[key] = idx + 1;
         var uuid = uuids[idx];
         var all  = workspace.desktops;
+        var targetDesktop = null;
         for (var i = 0; i < all.length; i++) {
-            if (all[i].id === uuid) { w.desktops = [all[i]]; break; }
+            if (all[i].id === uuid) {
+                targetDesktop = all[i];
+                w.desktops = [all[i]];
+                break;
+            }
         }
+        var total = counts[uuid] || 0;
+        if (total <= 1 || !targetDesktop) return;
+        var slotIdx = placedOnDesktop[uuid] || 0;
+        placedOnDesktop[uuid] = slotIdx + 1;
+        try {
+            var area = workspace.clientArea(2, w.output, targetDesktop);
+            var cols       = Math.ceil(Math.sqrt(total));
+            var rows       = Math.ceil(total / cols);
+            var row        = Math.floor(slotIdx / cols);
+            var col        = slotIdx % cols;
+            var lastRowN   = total - (rows - 1) * cols;
+            var colsInRow  = (row === rows - 1) ? lastRowN : cols;
+            var winW = Math.floor(area.width  / colsInRow);
+            var winH = Math.floor(area.height / rows);
+            w.frameGeometry = {
+                x:      area.x + col * winW,
+                y:      area.y + row * winH,
+                width:  winW,
+                height: winH
+            };
+        } catch(e) {}
     });
 })();
 """
@@ -185,8 +215,21 @@ def _build_kwin_rules(assignments: list[dict]) -> dict[str, list[str]]:
     return rules
 
 
-def _kwin_load_script(rules: dict) -> bool:
-    content = _KWIN_SCRIPT_TPL.replace("__RULES__", json.dumps(rules))
+def _build_kwin_counts(assignments: list[dict]) -> dict[str, int]:
+    """Count how many windows will be placed on each desktop UUID (for tiling)."""
+    counts: dict[str, int] = {}
+    for a in assignments:
+        uuid = a["desktop_uuid"]
+        counts[uuid] = counts.get(uuid, 0) + 1
+    return counts
+
+
+def _kwin_load_script(rules: dict, counts: dict) -> bool:
+    content = (
+        _KWIN_SCRIPT_TPL
+        .replace("__RULES__", json.dumps(rules))
+        .replace("__COUNTS__", json.dumps(counts))
+    )
     try:
         Path(_KWIN_SCRIPT_PATH).write_text(content, encoding="utf-8")
         bus = dbus.SessionBus()
@@ -238,8 +281,9 @@ class LaunchThread(QThread):
         self._desktops = desktops
 
     def run(self):
-        rules = _build_kwin_rules(self._assignments)
-        if not _kwin_load_script(rules):
+        rules  = _build_kwin_rules(self._assignments)
+        counts = _build_kwin_counts(self._assignments)
+        if not _kwin_load_script(rules, counts):
             self.finished.emit(False, _("Could not load KWin script."))
             return
 
@@ -847,8 +891,9 @@ def run_headless(profile_name: str | None = None) -> int:
         print(_("No valid assignments in configuration."), file=sys.stderr)
         return 1
 
-    rules = _build_kwin_rules(assignments)
-    if not _kwin_load_script(rules):
+    rules  = _build_kwin_rules(assignments)
+    counts = _build_kwin_counts(assignments)
+    if not _kwin_load_script(rules, counts):
         print(_("Could not load KWin script."), file=sys.stderr)
         return 1
 
