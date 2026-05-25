@@ -171,3 +171,15 @@ msgstr "Profil verwenden (Standard: zuletzt aktives Profil aus config.json)."
 
 msgid "Launch error: {e}"
 msgstr "Fehler beim Starten: {e}"
+
+msgid "Tile windows"
+msgstr "Fenster kacheln"
+
+msgid "Distribute windows evenly on each workspace like a tiling manager"
+msgstr "Fenster gleichmäßig auf jeden Workspace verteilen"
+
+msgid "Quit after launch"
+msgstr "Nach dem Start beenden"
+
+msgid "Close Deskmap after all applications have been launched"
+msgstr "Deskmap schließen, nachdem alle Anwendungen gestartet wurden"

@@ -408,6 +408,7 @@ class MainWindow(QMainWindow):
         self._active_profile: str = DEFAULT_PROFILE
         self._loading: bool = False
         self._tiling_enabled: bool = True
+        self._quit_after_launch: bool = False
 
         self._build_ui()
         self._load_apps()
@@ -524,6 +525,12 @@ class MainWindow(QMainWindow):
         )
         self._tiling_chk.toggled.connect(self._on_tiling_toggled)
         bottom.addWidget(self._tiling_chk)
+
+        self._quit_chk = QCheckBox(_("Quit after launch"))
+        self._quit_chk.setChecked(False)
+        self._quit_chk.setToolTip(_("Close Deskmap after all applications have been launched"))
+        self._quit_chk.toggled.connect(self._on_quit_after_launch_toggled)
+        bottom.addWidget(self._quit_chk)
 
         self._launch_btn = QPushButton(_("Launch all"))
         self._launch_btn.setFixedHeight(36)
@@ -676,6 +683,8 @@ class MainWindow(QMainWindow):
         self._set_status(message)
         if success:
             QTimer.singleShot(20_000, _kwin_unload_script)
+            if self._quit_after_launch:
+                QApplication.quit()
         else:
             QMessageBox.critical(self, _("Launch Error"), message)
 
@@ -683,6 +692,10 @@ class MainWindow(QMainWindow):
 
     def _on_tiling_toggled(self, checked: bool):
         self._tiling_enabled = checked
+        self._save_config()
+
+    def _on_quit_after_launch_toggled(self, checked: bool):
+        self._quit_after_launch = checked
         self._save_config()
 
     def _save_config(self):
@@ -696,6 +709,7 @@ class MainWindow(QMainWindow):
         data = {
             "active_profile": self._active_profile,
             "tiling": self._tiling_enabled,
+            "quit_after_launch": self._quit_after_launch,
             "profiles": self._profiles,
         }
         CONFIG_PATH.write_text(json.dumps(data, indent=2), encoding="utf-8")
@@ -715,10 +729,12 @@ class MainWindow(QMainWindow):
                 if saved_active in self._profiles:
                     self._active_profile = saved_active
                 self._tiling_enabled = bool(raw.get("tiling", True))
+                self._quit_after_launch = bool(raw.get("quit_after_launch", False))
             except (json.JSONDecodeError, OSError):
                 pass
 
         self._tiling_chk.setChecked(self._tiling_enabled)
+        self._quit_chk.setChecked(self._quit_after_launch)
         self._refresh_profile_combo()
         self._loading = True
         self._apply_profile(self._profiles[self._active_profile])
