@@ -733,10 +733,10 @@ class MainWindow(QMainWindow):
             except (json.JSONDecodeError, OSError):
                 pass
 
+        self._loading = True
         self._tiling_chk.setChecked(self._tiling_enabled)
         self._quit_chk.setChecked(self._quit_after_launch)
         self._refresh_profile_combo()
-        self._loading = True
         self._apply_profile(self._profiles[self._active_profile])
         self._loading = False
         self._save_config()
