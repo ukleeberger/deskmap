@@ -31,7 +31,7 @@ sudo pacman -S python-pyqt6 python-dbus
 ./install.sh
 ```
 
-Creates a symlink at `~/.local/bin/deskmap` and places `deskmap.desktop` on the desktop.
+Creates a symlink at `~/.local/bin/deskmap` and places `deskmap.desktop` (GUI) and `deskmap-default.desktop` (launches the `default` profile headlessly) on the desktop.
 
 ## Usage
 

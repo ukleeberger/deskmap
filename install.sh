@@ -11,6 +11,7 @@ ln -sf "$REPO/deskmap.sh" "$BIN/deskmap"
 chmod +x "$REPO/deskmap.sh"
 
 ln -sf "$REPO/deskmap.desktop" "$DESKTOP/deskmap.desktop"
+ln -sf "$REPO/deskmap-default.desktop" "$DESKTOP/deskmap-default.desktop"
 
 # Compile translations
 find "$REPO/locales" -name "*.po" | while read -r po; do
@@ -21,3 +22,4 @@ done
 
 echo "Installed: $BIN/deskmap → $REPO/deskmap.sh"
 echo "Desktop:   $DESKTOP/deskmap.desktop"
+echo "Desktop:   $DESKTOP/deskmap-default.desktop"

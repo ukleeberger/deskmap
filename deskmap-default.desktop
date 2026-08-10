@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Deskmap: Default-Profil
+Comment=Startet das Default-Profil von Deskmap ohne GUI
+Exec=deskmap --headless --profile default
+Icon=preferences-desktop-display
+Terminal=false
+Categories=Utility;
